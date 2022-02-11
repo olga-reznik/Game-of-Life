@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Game of Life</title>
+</head>
+<body>
+ <style>
+
+
+    #settings-panel {
+        display: flex;
+        flex-direction: column;
+        width: 200px;
+        margin-bottom: 20px;
+        background-color: rgb(226, 226, 226);
+        border-radius: 10px;
+        padding: 10px;
+    }
+    #settings-panel input {
+        width: 60px;
+        
+    }
+    #settings-panel label {
+        display: flex;
+        justify-content: space-between;
+        padding: 7px;
+    }
+    #settings-panel button {
+        margin: 5px 0;
+    }
+    #settings-panel-title {
+        font-weight: bold;
+        font-size: 18px;
+        margin: 5px  auto;
+    }
+    #game-status {
+        display: flex;
+        flex-direction: column;
+        font-size: 18px;
+
+    }
+    #status-panel {
+        display: flex;
+        flex-direction: column;
+    }
+</style>    
+<div id="GameLife">
+    <h1>Game of Life</h1>
+    <p><a href="https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life" target="_blank">Description</a></p>
+
+    <div id="settings-panel">
+        <p id="settings-panel-title">Settings</p>
+        <label>Field Height    <input type="number" value="10" min="1" id="input-field-size-height"></label>
+        <label>Field Width     <input type="number" value="10" min="1" id="input-field-size-width"></label>
+        <label>Field Cell Size <input type="number" value="10" min="2" id="input-field-cell-size"></label>
+        <label>Dalay Between 
+                   Generations <input type="number" value="0" min="0" id="input-field-delay-between-generation"></label>
+      
+        <div>
+            <button id="game-draw-button">Draw</button>
+            <button id="game-start-button" disabled>Start</button>
+            <button id="game-stop-button" disabled>Stop</button>
+            <button id="game-next-generation-button" disabled>Next Generation</button>
+            <button id="game-auto-play-button" disabled>Auto Play</button>
+        </div>
+
+    </div>
+    <div id="status-panel">
+        <label id="game-status"></label>
+        <label id="generation-number"> </label>
+        <label id="generation-number"> </label>
+        <label id="generation-time"> </label>
+        <label id="calc-time"> </label>
+    </div>
+
+    <canvas id="game-field" style="background-color:#eee; border: 1px solid #ccc; margin:10px;" width="100" height="100"></canvas>
+    
+</div>
+<script>
+    //Массив для хранения текущего состояния
+    let currentFieldState = [];
+    //Массив для хранения последующего состояния
+    let nextGenerationState = [];
+    //Массив для хранения информации, изменялась ли клетка
+    let isChangedCells = [];   
+
+    let gameHtmlId = "GameLife";
+    let canvas = document.getElementById('game-field');
+    let context = canvas.getContext('2d');
+
+    
+    let fieldSizeHeight; 
+    let fieldSizeWidth;
+    let fieldCellSize; 
+    let DEAD = 0;
+    let LIVE = 1;
+    let liveCellCountOnAllField; //Подсчет живых клеток на поле. Если все умрут, то игра завершится.
+    let changeCellStateCount; //Подсчет клеток, которые поменяли свое состояние. Если никто не поменяет, то игра завершится.  
+    let stateStoreCount = 800; // Количество состояний, которое храним для проверки возникновения переодичности состояний
+    let timer;
+    let dalayBetweenGenerations;
+    let generationNumber;
+    //Массивы для проверки тождественных состояний. В каждом содержиться сумма живых клеток в ряду или столбце
+    let lifeCellSummHeight = [];
+    let lifeCellSummWidth  = [];
+
+    //ширина сетки
+    let gridWidth = 1;
+    let maxX, maxY;
+        
+    let delayTimer;
+
+    setSettings = function() {
+        fieldSizeHeight          = Math.abs(parseInt(document.getElementById('input-field-size-height').value)); 
+        fieldSizeWidth           = Math.abs(parseInt(document.getElementById('input-field-size-width').value));
+        fieldCellSize            = Math.abs(parseInt(document.getElementById('input-field-cell-size').value)); 
+        dalayBetweenGenerations  = Math.abs(parseInt(document.getElementById('input-field-delay-between-generation').value)); 
+
+        maxX = fieldSizeWidth*fieldCellSize+gridWidth*(fieldSizeWidth+1);
+        maxY = fieldSizeHeight*fieldCellSize+gridWidth*(fieldSizeHeight+1);
+
+        document.getElementById('game-field').setAttribute("width", maxX);
+        document.getElementById('game-field').setAttribute("height", maxY);
+
+        
+
+        currentFieldState = [fieldSizeHeight];
+        nextGenerationState = [fieldSizeHeight];
+        isChangedCells = [fieldSizeHeight];
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            currentFieldState[i] = new Array(fieldSizeWidth).fill(0);
+            nextGenerationState[i] = new Array(fieldSizeWidth).fill(0);
+            isChangedCells[i] = new Array(fieldSizeWidth).fill(true);
+        }
+    }
+
+
+
+    showField = function() {
+        // рисуем сначала живые измененные, потом мертвые измененные
+        // живые измененные
+        context.fillStyle = "rgb(200,0,0)";
+        let currentX, currentY = gridWidth;
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            currentX = gridWidth;
+            for (let j = 0; j < fieldSizeWidth; j++) {
+                if ( isChangedCells[i][j] && currentFieldState[i][j] === LIVE ) {
+                        context.fillRect (currentX, currentY, fieldCellSize, fieldCellSize);
+                }
+                currentX += fieldCellSize+gridWidth;
+            }
+            currentY += fieldCellSize+gridWidth;
+        }
+        //мертвые измененные
+        currentX, currentY = gridWidth;
+        context.fillStyle = "rgba(0, 0, 200)";
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            currentX = gridWidth;
+            for (let j = 0; j < fieldSizeWidth; j++) {
+                if ( isChangedCells[i][j] && currentFieldState[i][j] === DEAD) {
+                    context.fillRect (currentX, currentY, fieldCellSize, fieldCellSize);
+                }
+                currentX += fieldCellSize+gridWidth;
+            }
+            currentY += fieldCellSize+gridWidth;
+        }
+
+        document.getElementById('generation-number').innerText = "Generation number "+generationNumber;
+    }
+
+    let mouse = { x:0, y:0};
+    let draw = false;
+
+    mousedownListener = function(e){
+        
+        mouse.x = e.pageX - this.offsetLeft;
+        mouse.y = e.pageY - this.offsetTop;
+        draw = true;
+        context.beginPath();
+        context.moveTo(mouse.x, mouse.y);
+    };
+    mousemoveListener = function(e) {       
+        if(draw==true){
+            mouse.x = e.pageX - this.offsetLeft;
+            mouse.y = e.pageY - this.offsetTop;
+            context.lineTo(mouse.x, mouse.y);
+            context.stroke();
+        }
+    };
+    mouseupListener = function(e){
+        mouse.x = e.pageX - this.offsetLeft;
+        mouse.y = e.pageY - this.offsetTop;
+        context.lineTo(mouse.x, mouse.y);
+        context.stroke();
+        context.closePath();
+        draw = false;
+    };
+
+    showGrid = function() {
+        context.fillStyle = "rgb(111,111,111)";
+
+        for (let gridY = 0; gridY < maxY; gridY+=fieldCellSize+gridWidth) {
+            context.fillRect (0, gridY, maxX, gridWidth);
+        }
+        for (let gridX = 0; gridX < maxX; gridX+=fieldCellSize+gridWidth) {
+            context.fillRect (gridX, 0, gridWidth, maxY);
+        }
+    }
+
+    drawFirstGeneration = function(){
+        setSettings();
+        context.clearRect(0, 0, canvas.width, canvas.height);
+
+        //Заполняем все поле цветом мертвых клеток
+        context.fillStyle = "rgba(0, 0, 200)";
+        context.fillRect (0, 0, maxX, maxY);
+
+        showGrid();
+
+        //Настройки для рисования живых клеток
+        context.strokeStyle = "rgb(200,0,0)";
+        context.lineWidth = fieldCellSize*0.8;
+
+        canvas.addEventListener( "mousemove", mousemoveListener );
+        canvas.addEventListener( "mouseup", mouseupListener );
+        canvas.addEventListener( "mousedown", mousedownListener );
+        
+        document.getElementById('game-start-button').removeAttribute('disabled'); 
+    }
+
+    generateRandomFirstGeneration = function(){
+        liveCellCountOnAllField = 0;
+        //Одновременно с созданием первого состояния заполняем первые проверочные массивы состояния
+        let lifeCellSummHeightCurrent = new Array(fieldSizeHeight).fill(0);
+        let lifeCellSummWidthCurrent = new Array(fieldSizeWidth).fill(0);
+        
+        let imageData, sumRed;
+        let currentX;
+        let currentY=gridWidth;
+        let liveColorLimit =  fieldCellSize*fieldCellSize/2;
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            currentX = gridWidth;
+            for (let j = 0; j < fieldSizeWidth; j++) {
+                imageData = context.getImageData(currentX, currentY, fieldCellSize, fieldCellSize).data;
+                sumRed=0;
+                for ( let k=0; k<imageData.length ; k+=4 ) {
+                    //Проверяем наличие красного
+                    //Если его 50%, засчитаем за живую
+                    if ( imageData[k] !== 0 ) {
+                        sumRed++
+                    }  
+                }
+                if ( sumRed >= liveColorLimit  ) {
+                    currentFieldState[i][j] = LIVE;
+                    liveCellCountOnAllField++;
+                    lifeCellSummHeightCurrent[i] += currentFieldState[i][j];  
+                    lifeCellSummWidthCurrent[j] += currentFieldState[i][j];
+                    
+                }
+                
+                currentX += fieldCellSize+gridWidth;
+            }
+            currentY += fieldCellSize+gridWidth;
+        }
+        
+        changeCellStateCount = fieldSizeHeight*fieldSizeWidth;
+        lifeCellSummHeight.push(lifeCellSummHeightCurrent);
+        lifeCellSummWidth.push(lifeCellSummWidthCurrent);
+
+    }
+    calcNextGeneration = function() {
+        let currentXCellIndex, currentYCellIndex, prevXCellIndex, prevYCellIndex, nextXCellIndex, nextYCellIndex;
+        let nw, n, ne, e, se, s, sw, w, liveCellNeighborCount;
+        changeCellStateCount = 0;
+        let lifeCellSummHeightCurrent = new Array(fieldSizeHeight).fill(0);
+        let lifeCellSummWidthCurrent = new Array(fieldSizeWidth).fill(0);
+        
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            for (let j = 0; j < fieldSizeWidth; j++) {
+                currentXCellIndex = j;
+                currentYCellIndex = i;
+                
+                // Поверхность игры - тор, поэтому в крайних точках смотрим значения массива с другого конца
+                prevXCellIndex = j-1 < 0 ? fieldSizeWidth-1 : j-1;
+                prevYCellIndex = i-1 < 0 ? fieldSizeHeight-1 : i-1;
+
+                nextXCellIndex = j+1 >= fieldSizeWidth ? 0 : j+1;
+                nextYCellIndex = i+1 >= fieldSizeHeight ? 0 : i+1;
+
+                        
+                // Значения соседних клеток (окрестность Мура)
+                // Проименованы по принципу сторон света
+                nw = currentFieldState[prevYCellIndex]   [prevXCellIndex];
+                n  = currentFieldState[prevYCellIndex]   [currentXCellIndex];
+                ne = currentFieldState[prevYCellIndex]   [nextXCellIndex];
+                e  = currentFieldState[currentYCellIndex][nextXCellIndex] ;
+                se = currentFieldState[nextYCellIndex]   [nextXCellIndex]  ;
+                s  = currentFieldState[nextYCellIndex]   [currentXCellIndex];
+                sw = currentFieldState[nextYCellIndex]   [prevXCellIndex] ;
+                w  = currentFieldState[currentYCellIndex][prevXCellIndex];
+                liveCellNeighborCount = nw+n+ne+e+se+s+sw+w;
+                if (currentFieldState[i][j] === LIVE ) {
+    
+                    if (liveCellNeighborCount < 2 || liveCellNeighborCount > 3) {
+                        nextGenerationState[i][j] = DEAD; // если соседей меньше двух или больше трёх, клетка умирает
+                        liveCellCountOnAllField--;
+                        changeCellStateCount++;
+                        isChangedCells[i][j] = true;
+                    } else {
+                        nextGenerationState[i][j] = LIVE;
+                        isChangedCells[i][j] = false;
+                    }
+                }
+                else  {
+                    if (liveCellNeighborCount === 3) {
+                        nextGenerationState[i][j] = LIVE; // В пустой (мёртвой) клетке, рядом с которой ровно три живые клетки, зарождается жизнь
+                        liveCellCountOnAllField++;
+                        changeCellStateCount++;
+                        isChangedCells[i][j] = true;
+                    } else {
+                        nextGenerationState[i][j] = DEAD;
+                        isChangedCells[i][j] = false;
+                    }
+                }
+                lifeCellSummHeightCurrent[i] += currentFieldState[i][j];  
+                lifeCellSummWidthCurrent[j] += currentFieldState[i][j];
+            }
+        }
+        lifeCellSummHeight.push(lifeCellSummHeightCurrent);
+        lifeCellSummWidth.push(lifeCellSummWidthCurrent);
+        if ( lifeCellSummHeight.length > stateStoreCount ) {
+            lifeCellSummHeight.splice(0,1);
+            lifeCellSummWidth.splice(0,1);
+        }
+
+    }
+
+    changeStateForNewGeneration = function() {
+        currentFieldState = nextGenerationState.slice();
+        for (let i = 0; i < fieldSizeHeight; i++) {
+            currentFieldState[i] = nextGenerationState[i].slice();
+        }
+
+        generationNumber++;
+    }
+    isEnd = function(){
+        // на поле не останется ни одной «живой» клетки
+        // при очередном шаге ни одна из клеток не меняет своего состояния
+        if (liveCellCountOnAllField===0 || changeCellStateCount === 0)
+            return true;
+
+        // конфигурация на очередном шаге в точности (без сдвигов и поворотов) 
+        // повторит себя же на одном из более ранних шагов (складывается периодическая конфигурация)
+        let lastStateIndex = lifeCellSummHeight.length-1;
+        for (let i=lastStateIndex-1; i>=0 ; i--) {
+            if ( lifeCellSummHeight[lastStateIndex].every((v, j) => lifeCellSummHeight[i][j] == v) 
+            &&
+            lifeCellSummWidth[lastStateIndex].every((v, j)  => lifeCellSummWidth[i][j] == v) )
+                return true;
+        } 
+
+        return false;    
+    }
+
+    gameStart = function() {
+        generationNumber = 1;
+        lifeCellSummHeight = [];
+        lifeCellSummWidth = [];
+        
+        showGrid();
+        generateRandomFirstGeneration();
+        showField();
+        calcNextGeneration(); 
+        
+
+        document.getElementById('game-status').innerText = "Life has begun";
+        document.getElementById('game-start-button').setAttribute('disabled', 'disabled');     
+        document.getElementById('game-stop-button').removeAttribute('disabled');   
+        document.getElementById('game-next-generation-button').removeAttribute('disabled');    
+        document.getElementById('game-auto-play-button').removeAttribute('disabled'); 
+        document.getElementById('game-draw-button').setAttribute('disabled', 'disabled');   
+
+         
+        canvas.removeEventListener( "mousemove", mousemoveListener );
+        canvas.removeEventListener( "mouseup", mouseupListener );
+        canvas.removeEventListener( "mousedown", mousedownListener );
+
+
+    }
+
+    generateAndShowNextGeneration = function() {
+    
+        changeStateForNewGeneration();
+        let renderTime1 = new Date();
+        showField();
+        let renderTime2 = new Date();
+        let calcTime1 = new Date();
+        calcNextGeneration();   
+        let calcTime2 = new Date();
+        
+        if ( isEnd() ) {
+            clearTimeout(delayTimer);
+            gameEnd();
+        } 
+        
+        let renderTime = (renderTime2.getTime()-renderTime1.getTime()) / 1000;
+        let calcTime = (calcTime2.getTime()-calcTime1.getTime()) / 1000;
+        document.getElementById('generation-time').innerText = "Render time "+renderTime+" c";
+        document.getElementById('calc-time').innerText = "Calculation time "+calcTime+" c";
+    }
+    gameEnd = function() {
+        clearTimeout(delayTimer);
+        if (liveCellCountOnAllField===0) 
+            document.getElementById('game-status').innerText = "Life is over";
+        else
+            document.getElementById('game-status').innerText = "Game is over";
+
+        document.getElementById('game-draw-button').removeAttribute('disabled');    
+        document.getElementById('game-stop-button').setAttribute('disabled', 'disabled');   
+        document.getElementById('game-next-generation-button').setAttribute('disabled', 'disabled');    
+        document.getElementById('game-auto-play-button').setAttribute('disabled', 'disabled'); 
+    }
+    autoPlay = function() {
+        delayTimer = setInterval(() => generateAndShowNextGeneration(), dalayBetweenGenerations); 
+    }
+
+    document.getElementById('game-draw-button').addEventListener("click", drawFirstGeneration);
+    document.getElementById('game-start-button').addEventListener("click", gameStart);
+    document.getElementById('game-stop-button').addEventListener("click", gameEnd);
+    document.getElementById('game-next-generation-button').addEventListener("click", generateAndShowNextGeneration);
+    document.getElementById('game-auto-play-button').addEventListener("click", autoPlay);
+
+
+</script>
+</body>
